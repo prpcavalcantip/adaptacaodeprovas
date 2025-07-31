@@ -4,8 +4,10 @@ import docx
 import re
 from io import BytesIO
 from docx.shared import Pt
-from docx.enum.text import WD_PARAGRAPH_ALIGNMENT
+from docx.oxml.ns import qn
+from docx.oxml import OxmlElement
 
+# Configuração da página
 st.set_page_config(page_title="AdaptaProva", layout="centered")
 
 st.title("🧠 AdaptaProva - Provas Adaptadas para Alunos com Neurodivergência")
@@ -39,6 +41,35 @@ def limpar_quebras(texto):
     texto = re.sub(r'\n{2,}', '\n\n', texto)  # múltiplas quebras → parágrafo
     return texto
 
+def formatar_questao(texto):
+    # Divide enunciado e alternativas
+    linhas = texto.split('\n')
+    enunciado = []
+    alternativas = []
+    for linha in linhas:
+        if re.match(r'^[A-E][)]', linha.strip()) or re.match(r'^[A-E][.]', linha.strip()):
+            alternativas.append(linha.strip())
+        else:
+            enunciado.append(linha.strip())
+    return ' '.join(enunciado), alternativas
+
+def set_font_paragraph(paragraph, size=14, bold=False):
+    run = paragraph.runs[0]
+    run.font.name = 'Arial'
+    run.font.size = Pt(size)
+    run.font.bold = bold
+    r = run._element
+    r.rPr.rFonts.set(qn('w:eastAsia'), 'Arial')
+
+def set_spacing(paragraph, space_after=18):
+    p = paragraph._element
+    pPr = p.get_or_add_pPr()
+    spacing = OxmlElement('w:spacing')
+    spacing.set(qn('w:after'), str(space_after*20)) # Espaço depois em TWIPs
+    spacing.set(qn('w:line'), '360')  # 1,5 de espaçamento (1,5 x 240)
+    spacing.set(qn('w:lineRule'), 'auto')
+    pPr.append(spacing)
+
 if uploaded_file and tipo:
     if st.button("🔄 Gerar Prova Adaptada"):
         with st.spinner("Processando..."):
@@ -48,27 +79,46 @@ if uploaded_file and tipo:
                 texto += page.get_text()
             texto = limpar_quebras(texto)
 
-            # Separar questões por "QUESTÃO"
-            blocos = re.split(r'\bQUESTÃO\s+\d+', texto)
-            blocos = [b.strip() for b in blocos if b.strip()]
-            if len(blocos) > 10:
-                blocos = blocos[1:]
-            blocos = blocos[:10]
+            # Separar questões por "Questão"
+            questoes = re.split(r'(?i)\bQuest(ã|a)o\s*\d+', texto)
+            questoes = [q.strip() for q in questoes if q.strip()]
+            if len(questoes) > 10:
+                questoes = questoes[1:]  # Remove cabeçalho, se necessário
+            questoes = questoes[:5]  # Apenas as 5 primeiras (mais fáceis)
 
-            # Criando o arquivo docx e adicionando dicas e questões
             docx_file = docx.Document()
-            docx_file.add_heading("Prova Adaptada", level=0)
-            docx_file.add_heading(f"Dicas para {tipo}:", level=1)
+
+            # Adiciona título
+            titulo = docx_file.add_heading("Prova Adaptada", level=0)
+            set_font_paragraph(titulo, size=14, bold=True)
+            set_spacing(titulo, space_after=24)
+
+            # Adiciona dicas
+            subtitulo = docx_file.add_paragraph(f"Dicas para {tipo}:")
+            set_font_paragraph(subtitulo, size=14, bold=True)
+            set_spacing(subtitulo, space_after=12)
             for dica in dicas_por_tipo[tipo]:
-                docx_file.add_paragraph(f"- {dica}")
+                dica_paragrafo = docx_file.add_paragraph(f"- {dica}")
+                set_font_paragraph(dica_paragrafo, size=14)
+                set_spacing(dica_paragrafo, space_after=12)
 
-            docx_file.add_page_break()
+            docx_file.add_paragraph("")  # Espaço visual
 
-            for idx, bloco in enumerate(blocos, 1):
-                docx_file.add_heading(f"Questão {idx}", level=2)
-                docx_file.add_paragraph(bloco)
+            # Adiciona cada questão adaptada
+            for idx, bloco in enumerate(questoes, 1):
+                enunciado, alternativas = formatar_questao(bloco)
+                qnum = docx_file.add_paragraph(f"Questão {idx}")
+                set_font_paragraph(qnum, size=14, bold=True)
+                set_spacing(qnum, space_after=12)
+                para = docx_file.add_paragraph(enunciado)
+                set_font_paragraph(para, size=14)
+                set_spacing(para, space_after=12)
+                for alt in alternativas:
+                    alt_paragrafo = docx_file.add_paragraph(alt)
+                    set_font_paragraph(alt_paragrafo, size=14)
+                    set_spacing(alt_paragrafo, space_after=12)
+                docx_file.add_paragraph("")  # Espaço extra
 
-            # Gerar arquivo para download
             buffer = BytesIO()
             docx_file.save(buffer)
             buffer.seek(0)
