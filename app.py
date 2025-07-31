@@ -42,12 +42,10 @@ def limpar_quebras(texto):
 if uploaded_file and tipo:
     if st.button("🔄 Gerar Prova Adaptada"):
         with st.spinner("Processando..."):
-
             doc = fitz.open(stream=uploaded_file.read(), filetype="pdf")
             texto = ""
             for page in doc:
                 texto += page.get_text()
-
             texto = limpar_quebras(texto)
 
             # Separar questões por "QUESTÃO"
@@ -57,5 +55,27 @@ if uploaded_file and tipo:
                 blocos = blocos[1:]
             blocos = blocos[:10]
 
+            # Criando o arquivo docx e adicionando dicas e questões
             docx_file = docx.Document()
-            docx_file.ad_
+            docx_file.add_heading("Prova Adaptada", level=0)
+            docx_file.add_heading(f"Dicas para {tipo}:", level=1)
+            for dica in dicas_por_tipo[tipo]:
+                docx_file.add_paragraph(f"- {dica}")
+
+            docx_file.add_page_break()
+
+            for idx, bloco in enumerate(blocos, 1):
+                docx_file.add_heading(f"Questão {idx}", level=2)
+                docx_file.add_paragraph(bloco)
+
+            # Gerar arquivo para download
+            buffer = BytesIO()
+            docx_file.save(buffer)
+            buffer.seek(0)
+            st.success("Prova adaptada gerada com sucesso!")
+            st.download_button(
+                label="⬇️ Baixar Prova Adaptada (.docx)",
+                data=buffer,
+                file_name="prova_adaptada.docx",
+                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            )
