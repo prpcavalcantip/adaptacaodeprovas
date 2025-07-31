@@ -40,19 +40,16 @@ def limpar_quebras(texto):
     return texto
 
 def extrair_questoes(texto):
-    # Captura blocos que se iniciam com 'Questão', número e conteúdo, até a próxima questão ou fim do texto.
     padrao = re.compile(r'(?:Quest[aã]o\s*\d+[\s:–-]*)((?:.|\n)*?)(?=(?:Quest[aã]o\s*\d+[\s:–-]*)|$)', re.IGNORECASE)
     questoes = padrao.findall(texto)
     questoes_validas = []
     for q in questoes:
-        # Considera válida se tiver pelo menos duas alternativas (A e B) no início de linha
         alternativas = re.findall(r'^[A-E][).]', q, re.MULTILINE)
         if len(alternativas) >= 2 and len(q.strip()) > 40:
             questoes_validas.append(q.strip())
     return questoes_validas[:5]
 
 def formatar_questao(texto):
-    # Separa o enunciado das alternativas
     linhas = texto.split('\n')
     enunciado = []
     alternativas = []
@@ -93,4 +90,9 @@ if uploaded_file and tipo:
             st.text_area("Texto extraído do PDF (para depuração):", texto, height=300)
 
             questoes = extrair_questoes(texto)
-            st.write(f"Quantidade de
+            st.write(f"Quantidade de questões reconhecidas: {len(questoes)}")
+
+            docx_file = docx.Document()
+
+            # Título
+            titulo =
