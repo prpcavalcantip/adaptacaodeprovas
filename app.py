@@ -4,14 +4,14 @@ import docx
 import re
 from io import BytesIO
 from docx.shared import Pt
-from docx.oxml.ns import qn
-from docx.oxml import OxmlElement
+from docx.enum.text import WD_PARAGRAPH_ALIGNMENT
 
 st.set_page_config(page_title="AdaptaProva", layout="centered")
 
 st.title("🧠 AdaptaProva - Provas Adaptadas para Alunos com Neurodivergência")
 st.markdown("Envie uma prova em PDF com texto selecionável e selecione a neurodivergência do aluno para gerar uma versão adaptada.")
 
+# Banco de dicas para cada neurodivergência
 dicas_por_tipo = {
     "TDAH": [
         "Destaque palavras-chave da pergunta.",
@@ -33,98 +33,74 @@ dicas_por_tipo = {
 uploaded_file = st.file_uploader("📄 Envie a prova em PDF", type=["pdf"])
 tipo = st.selectbox("🧠 Neurodivergência do aluno:", ["TDAH", "TEA", "Ansiedade"])
 
-def limpar_quebras(texto):
-    texto = re.sub(r'(?<!\n)\n(?!\n)', ' ', texto)
-    texto = re.sub(r'(\w)-\s+(\w)', r'\1\2', texto)
-    texto = re.sub(r'\n{2,}', '\n\n', texto)
-    return texto
-
-def extrair_questoes(texto):
-    padrao = re.compile(r'(?:Quest[aã]o\s*\d+[\s:–-]*)((?:.|\n)*?)(?=(?:Quest[aã]o\s*\d+[\s:–-]*)|$)', re.IGNORECASE)
-    questoes = padrao.findall(texto)
-    questoes_validas = []
-    for q in questoes:
-        alternativas = re.findall(r'^[A-E][).]', q, re.MULTILINE)
-        if len(alternativas) >= 2 and len(q.strip()) > 40:
-            questoes_validas.append(q.strip())
-    return questoes_validas[:5]
-
-def formatar_questao(texto):
-    linhas = texto.split('\n')
-    enunciado = []
-    alternativas = []
-    for linha in linhas:
-        if re.match(r'^[A-E][).]', linha.strip()):
-            alternativas.append(linha.strip())
-        elif linha.strip():
-            enunciado.append(linha.strip())
-    return ' '.join(enunciado).strip(), alternativas
-
-def set_font_paragraph(paragraph, size=14, bold=False):
-    for run in paragraph.runs:
-        run.font.name = 'Arial'
-        run.font.size = Pt(size)
-        run.font.bold = bold
-        r = run._element
-        r.rPr.rFonts.set(qn('w:eastAsia'), 'Arial')
-
-def set_spacing(paragraph, space_after=18):
-    p = paragraph._element
-    pPr = p.get_or_add_pPr()
-    spacing = OxmlElement('w:spacing')
-    spacing.set(qn('w:after'), str(space_after*20))  # Espaço depois em TWIPs
-    spacing.set(qn('w:line'), '360')  # Espaçamento 1.5 linhas
-    spacing.set(qn('w:lineRule'), 'auto')
-    pPr.append(spacing)
-
 if uploaded_file and tipo:
     if st.button("🔄 Gerar Prova Adaptada"):
         with st.spinner("Processando..."):
+
+            # Lê o PDF
             doc = fitz.open(stream=uploaded_file.read(), filetype="pdf")
             texto = ""
             for page in doc:
                 texto += page.get_text()
-            texto = limpar_quebras(texto)
 
-            questoes = extrair_questoes(texto)
+            # Divide por "QUESTÃO X"
+            blocos = re.split(r'\bQUESTÃO\s+\d+', texto)
+            blocos = [b.strip() for b in blocos if b.strip()]
+            if len(blocos) > 10:
+                blocos = blocos[1:]  # Remove cabeçalho se estiver no primeiro bloco
+            blocos = blocos[:10]
 
             docx_file = docx.Document()
+            docx_file.add_heading("Prova Adaptada", 0)
 
-            titulo = docx_file.add_heading("Prova Adaptada", level=0)
-            set_font_paragraph(titulo, size=14, bold=True)
-            set_spacing(titulo, space_after=24)
+            # Fonte padrão 14 pt
+            style = docx_file.styles["Normal"]
+            style.font.size = Pt(14)
 
-            subtitulo = docx_file.add_paragraph(f"Dicas para {tipo}:")
-            set_font_paragraph(subtitulo, size=14, bold=True)
-            set_spacing(subtitulo, space_after=12)
+            # DICAS iniciais no topo da prova
+            docx_file.add_paragraph("💡 DICAS PARA O ALUNO:", style="List Bullet")
             for dica in dicas_por_tipo[tipo]:
-                dica_paragrafo = docx_file.add_paragraph(f"- {dica}")
-                set_font_paragraph(dica_paragrafo, size=14)
-                set_spacing(dica_paragrafo, space_after=12)
-
+                p = docx_file.add_paragraph(dica, style="List Bullet")
+                p.alignment = WD_PARAGRAPH_ALIGNMENT.LEFT
+                p.paragraph_format.line_spacing = 1.5
             docx_file.add_paragraph("")
 
-            for idx, bloco in enumerate(questoes, 1):
-                enunciado, alternativas = formatar_questao(bloco)
-                qnum = docx_file.add_paragraph(f"Questão {idx}")
-                set_font_paragraph(qnum, size=14, bold=True)
-                set_spacing(qnum, space_after=12)
-                if enunciado:
-                    para = docx_file.add_paragraph(enunciado)
-                    set_font_paragraph(para, size=14)
-                    set_spacing(para, space_after=12)
-                for alt in alternativas:
-                    alt_paragrafo = docx_file.add_paragraph(alt)
-                    set_font_paragraph(alt_paragrafo, size=14)
-                    set_spacing(alt_paragrafo, space_after=12)
+            # Adiciona as questões
+            for i, bloco in enumerate(blocos):
+                # Título da questão
+                titulo = docx_file.add_paragraph()
+                run = titulo.add_run(f"QUESTÃO {i+1}")
+                run.bold = True
+                titulo.alignment = WD_PARAGRAPH_ALIGNMENT.LEFT
+
+                # Enunciado
+                enunciado = docx_file.add_paragraph(bloco)
+                enunciado.alignment = WD_PARAGRAPH_ALIGNMENT.LEFT
+                for run in enunciado.runs:
+                    run.font.size = Pt(14)
+
+                # Espaço duplo após o enunciado
+                docx_file.add_paragraph("")
                 docx_file.add_paragraph("")
 
+                # Dicas da questão
+                docx_file.add_paragraph("💡 Dicas para essa questão:", style="List Bullet")
+                for dica in dicas_por_tipo[tipo]:
+                    dica_par = docx_file.add_paragraph(dica, style="List Bullet")
+                    dica_par.alignment = WD_PARAGRAPH_ALIGNMENT.LEFT
+                    dica_par.paragraph_format.line_spacing = 1.5
+
+                # Espaço final
+                docx_file.add_paragraph("")
+
+            # Salva o documento em memória
             buffer = BytesIO()
             docx_file.save(buffer)
             buffer.seek(0)
-            st.success("Prova adaptada gerada com sucesso!")
+
+            st.success("✅ Prova adaptada gerada com sucesso!")
             st.download_button(
-                label="⬇️ Baixar Prova Adaptada (.docx)",
+                label="📥 Baixar Prova Adaptada (.docx)",
                 data=buffer,
                 file_name="prova_adaptada.docx",
                 mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
