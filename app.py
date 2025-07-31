@@ -40,45 +40,43 @@ def limpar_quebras(texto):
     return texto
 
 def extrair_questoes(texto):
-    # Regex para captar a palavra "Questão" (com variantes de acentuação), seguida do número da questão
-    padrao = re.compile(r'(?:Quest[aã]o\s*\d+)(.*?)(?=(?:Quest[aã]o\s*\d+)|\Z)', re.DOTALL | re.IGNORECASE)
+    # Captura blocos que se iniciam com 'Questão', número e conteúdo, até a próxima questão ou fim do texto.
+    padrao = re.compile(r'(?:Quest[aã]o\s*\d+[\s:–-]*)((?:.|\n)*?)(?=(?:Quest[aã]o\s*\d+[\s:–-]*)|$)', re.IGNORECASE)
     questoes = padrao.findall(texto)
-    # Filtra blocos que parecem questões válidas: devem ser maiores que 100 caracteres e conter pelo menos duas alternativas
     questoes_validas = []
     for q in questoes:
-        alternativas = re.findall(r'^[A-E][\).]', q, re.MULTILINE)
-        if len(q.strip()) > 100 and len(alternativas) >= 2:
+        # Considera válida se tiver pelo menos duas alternativas (A e B) no início de linha
+        alternativas = re.findall(r'^[A-E][).]', q, re.MULTILINE)
+        if len(alternativas) >= 2 and len(q.strip()) > 40:
             questoes_validas.append(q.strip())
     return questoes_validas[:5]
 
 def formatar_questao(texto):
-    # Divide enunciado e alternativas
+    # Separa o enunciado das alternativas
     linhas = texto.split('\n')
     enunciado = []
     alternativas = []
     for linha in linhas:
-        if re.match(r'^[A-E][\).]', linha.strip()):
+        if re.match(r'^[A-E][).]', linha.strip()):
             alternativas.append(linha.strip())
-        else:
+        elif linha.strip():
             enunciado.append(linha.strip())
     return ' '.join(enunciado).strip(), alternativas
 
 def set_font_paragraph(paragraph, size=14, bold=False):
-    if not paragraph.runs:
-        return
-    run = paragraph.runs[0]
-    run.font.name = 'Arial'
-    run.font.size = Pt(size)
-    run.font.bold = bold
-    r = run._element
-    r.rPr.rFonts.set(qn('w:eastAsia'), 'Arial')
+    for run in paragraph.runs:
+        run.font.name = 'Arial'
+        run.font.size = Pt(size)
+        run.font.bold = bold
+        r = run._element
+        r.rPr.rFonts.set(qn('w:eastAsia'), 'Arial')
 
 def set_spacing(paragraph, space_after=18):
     p = paragraph._element
     pPr = p.get_or_add_pPr()
     spacing = OxmlElement('w:spacing')
-    spacing.set(qn('w:after'), str(space_after*20))
-    spacing.set(qn('w:line'), '360')
+    spacing.set(qn('w:after'), str(space_after*20))  # Espaço depois em TWIPs
+    spacing.set(qn('w:line'), '360')  # Espaçamento 1.5 linhas
     spacing.set(qn('w:lineRule'), 'auto')
     pPr.append(spacing)
 
@@ -91,48 +89,8 @@ if uploaded_file and tipo:
                 texto += page.get_text()
             texto = limpar_quebras(texto)
 
+            # Exibe o texto extraído para depuração
+            st.text_area("Texto extraído do PDF (para depuração):", texto, height=300)
+
             questoes = extrair_questoes(texto)
-
-            docx_file = docx.Document()
-
-            # Título
-            titulo = docx_file.add_heading("Prova Adaptada", level=0)
-            set_font_paragraph(titulo, size=14, bold=True)
-            set_spacing(titulo, space_after=24)
-
-            # Dicas
-            subtitulo = docx_file.add_paragraph(f"Dicas para {tipo}:")
-            set_font_paragraph(subtitulo, size=14, bold=True)
-            set_spacing(subtitulo, space_after=12)
-            for dica in dicas_por_tipo[tipo]:
-                dica_paragrafo = docx_file.add_paragraph(f"- {dica}")
-                set_font_paragraph(dica_paragrafo, size=14)
-                set_spacing(dica_paragrafo, space_after=12)
-
-            docx_file.add_paragraph("")
-
-            # Questões
-            for idx, bloco in enumerate(questoes, 1):
-                enunciado, alternativas = formatar_questao(bloco)
-                qnum = docx_file.add_paragraph(f"Questão {idx}")
-                set_font_paragraph(qnum, size=14, bold=True)
-                set_spacing(qnum, space_after=12)
-                para = docx_file.add_paragraph(enunciado)
-                set_font_paragraph(para, size=14)
-                set_spacing(para, space_after=12)
-                for alt in alternativas:
-                    alt_paragrafo = docx_file.add_paragraph(alt)
-                    set_font_paragraph(alt_paragrafo, size=14)
-                    set_spacing(alt_paragrafo, space_after=12)
-                docx_file.add_paragraph("")
-
-            buffer = BytesIO()
-            docx_file.save(buffer)
-            buffer.seek(0)
-            st.success("Prova adaptada gerada com sucesso!")
-            st.download_button(
-                label="⬇️ Baixar Prova Adaptada (.docx)",
-                data=buffer,
-                file_name="prova_adaptada.docx",
-                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-            )
+            st.write(f"Quantidade de
