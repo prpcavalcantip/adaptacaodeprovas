@@ -86,10 +86,7 @@ if uploaded_file and tipo:
                 texto += page.get_text()
             texto = limpar_quebras(texto)
 
-            st.text_area("Texto extraído do PDF (para depuração):", texto, height=300)
-
             questoes = extrair_questoes(texto)
-            st.write(f"Quantidade de questões reconhecidas: {len(questoes)}")
 
             docx_file = docx.Document()
 
