@@ -33,6 +33,18 @@ dicas_por_tipo = {
 uploaded_file = st.file_uploader("📄 Envie a prova em PDF", type=["pdf"])
 tipo = st.selectbox("🧠 Neurodivergência do aluno:", ["TDAH", "TEA", "Ansiedade"])
 
+def eh_cabecalho(bloco):
+    # Considere como cabeçalho se NÃO houver nenhuma alternativa do tipo A), B) etc.
+    if re.search(r'^[A-E][\).]', bloco, flags=re.MULTILINE):
+        return False
+    # Considere como cabeçalho se mencionar "Aluno", "Professor", "Turma" ou "Data"
+    if re.search(r'Aluno|Professor|Turma|Data', bloco, re.IGNORECASE):
+        return True
+    # Considere como cabeçalho se tiver menos de 40 caracteres
+    if len(bloco.strip()) < 40:
+        return True
+    return False
+
 if uploaded_file and tipo:
     if st.button("🔄 Gerar Prova Adaptada"):
         with st.spinner("Processando..."):
@@ -46,14 +58,15 @@ if uploaded_file and tipo:
             # Divide por "QUESTÃO X"
             blocos = re.split(r'\bQUEST[ÃA]O[\s:]*\d+\b', texto, flags=re.IGNORECASE)
             blocos = [b.strip() for b in blocos if b.strip()]
-            if len(blocos) > 0 and len(blocos[0].split()) < 8:
+            # Elimina o cabeçalho automaticamente caso detectado
+            if blocos and eh_cabecalho(blocos[0]):
                 blocos = blocos[1:]
             blocos = blocos[:10]
 
             docx_file = docx.Document()
             docx_file.add_heading("Prova Adaptada", 0)
 
-            # Fonte padrão 14 pt e Arial, espaçamento 1.5
+            # Fonte padrão 14 pt, Arial, espaçamento 1.5
             style = docx_file.styles["Normal"]
             style.font.size = Pt(14)
             style.font.name = "Arial"
@@ -68,7 +81,7 @@ if uploaded_file and tipo:
                 p.paragraph_format.line_spacing = 1.5
             docx_file.add_paragraph("")
 
-            # Adiciona as questões com espaçamento visual melhorado
+            # Adiciona as questões com formatação
             for i, bloco in enumerate(blocos):
                 # Título da questão
                 titulo = docx_file.add_paragraph()
