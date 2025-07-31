@@ -44,18 +44,21 @@ if uploaded_file and tipo:
                 texto += page.get_text()
 
             # Divide por "QUESTÃO X"
-            blocos = re.split(r'\bQUESTÃO\s+\d+', texto)
+            blocos = re.split(r'\bQUEST[ÃA]O[\s:]*\d+\b', texto, flags=re.IGNORECASE)
             blocos = [b.strip() for b in blocos if b.strip()]
-            if len(blocos) > 10:
-                blocos = blocos[1:]  # Remove cabeçalho se estiver no primeiro bloco
+            if len(blocos) > 0 and len(blocos[0].split()) < 8:
+                blocos = blocos[1:]
             blocos = blocos[:10]
 
             docx_file = docx.Document()
             docx_file.add_heading("Prova Adaptada", 0)
 
-            # Fonte padrão 14 pt
+            # Fonte padrão 14 pt e Arial, espaçamento 1.5
             style = docx_file.styles["Normal"]
             style.font.size = Pt(14)
+            style.font.name = "Arial"
+            style.paragraph_format.line_spacing = 1.5
+            style.paragraph_format.space_after = Pt(8)
 
             # DICAS iniciais no topo da prova
             docx_file.add_paragraph("💡 DICAS PARA O ALUNO:", style="List Bullet")
@@ -65,35 +68,27 @@ if uploaded_file and tipo:
                 p.paragraph_format.line_spacing = 1.5
             docx_file.add_paragraph("")
 
-            # Adiciona as questões
+            # Adiciona as questões com espaçamento visual melhorado
             for i, bloco in enumerate(blocos):
                 # Título da questão
                 titulo = docx_file.add_paragraph()
                 run = titulo.add_run(f"QUESTÃO {i+1}")
                 run.bold = True
                 titulo.alignment = WD_PARAGRAPH_ALIGNMENT.LEFT
+                titulo.paragraph_format.space_after = Pt(2)
 
-                # Enunciado
+                # Enunciado + alternativas (tudo no bloco)
                 enunciado = docx_file.add_paragraph(bloco)
                 enunciado.alignment = WD_PARAGRAPH_ALIGNMENT.LEFT
+                enunciado.paragraph_format.line_spacing = 1.5
+                enunciado.paragraph_format.space_after = Pt(8)
                 for run in enunciado.runs:
                     run.font.size = Pt(14)
+                    run.font.name = "Arial"
 
-                # Espaço duplo após o enunciado
-                docx_file.add_paragraph("")
-                docx_file.add_paragraph("")
-
-                # Dicas da questão
-                docx_file.add_paragraph("💡 Dicas para essa questão:", style="List Bullet")
-                for dica in dicas_por_tipo[tipo]:
-                    dica_par = docx_file.add_paragraph(dica, style="List Bullet")
-                    dica_par.alignment = WD_PARAGRAPH_ALIGNMENT.LEFT
-                    dica_par.paragraph_format.line_spacing = 1.5
-
-                # Espaço final
+                # Espaço extra entre as questões
                 docx_file.add_paragraph("")
 
-            # Salva o documento em memória
             buffer = BytesIO()
             docx_file.save(buffer)
             buffer.seek(0)
