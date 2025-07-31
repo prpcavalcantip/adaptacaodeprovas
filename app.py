@@ -86,7 +86,6 @@ if uploaded_file and tipo:
                 texto += page.get_text()
             texto = limpar_quebras(texto)
 
-            # Exibe o texto extraído para depuração
             st.text_area("Texto extraído do PDF (para depuração):", texto, height=300)
 
             questoes = extrair_questoes(texto)
@@ -94,5 +93,42 @@ if uploaded_file and tipo:
 
             docx_file = docx.Document()
 
-            # Título
-            titulo =
+            titulo = docx_file.add_heading("Prova Adaptada", level=0)
+            set_font_paragraph(titulo, size=14, bold=True)
+            set_spacing(titulo, space_after=24)
+
+            subtitulo = docx_file.add_paragraph(f"Dicas para {tipo}:")
+            set_font_paragraph(subtitulo, size=14, bold=True)
+            set_spacing(subtitulo, space_after=12)
+            for dica in dicas_por_tipo[tipo]:
+                dica_paragrafo = docx_file.add_paragraph(f"- {dica}")
+                set_font_paragraph(dica_paragrafo, size=14)
+                set_spacing(dica_paragrafo, space_after=12)
+
+            docx_file.add_paragraph("")
+
+            for idx, bloco in enumerate(questoes, 1):
+                enunciado, alternativas = formatar_questao(bloco)
+                qnum = docx_file.add_paragraph(f"Questão {idx}")
+                set_font_paragraph(qnum, size=14, bold=True)
+                set_spacing(qnum, space_after=12)
+                if enunciado:
+                    para = docx_file.add_paragraph(enunciado)
+                    set_font_paragraph(para, size=14)
+                    set_spacing(para, space_after=12)
+                for alt in alternativas:
+                    alt_paragrafo = docx_file.add_paragraph(alt)
+                    set_font_paragraph(alt_paragrafo, size=14)
+                    set_spacing(alt_paragrafo, space_after=12)
+                docx_file.add_paragraph("")
+
+            buffer = BytesIO()
+            docx_file.save(buffer)
+            buffer.seek(0)
+            st.success("Prova adaptada gerada com sucesso!")
+            st.download_button(
+                label="⬇️ Baixar Prova Adaptada (.docx)",
+                data=buffer,
+                file_name="prova_adaptada.docx",
+                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            )
