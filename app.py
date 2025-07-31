@@ -7,13 +7,11 @@ from docx.shared import Pt
 from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
 
-# Configuração da página
 st.set_page_config(page_title="AdaptaProva", layout="centered")
 
 st.title("🧠 AdaptaProva - Provas Adaptadas para Alunos com Neurodivergência")
 st.markdown("Envie uma prova em PDF com texto selecionável e selecione a neurodivergência do aluno para gerar uma versão adaptada.")
 
-# Dicas por tipo de neurodivergência
 dicas_por_tipo = {
     "TDAH": [
         "Destaque palavras-chave da pergunta.",
@@ -36,10 +34,22 @@ uploaded_file = st.file_uploader("📄 Envie a prova em PDF", type=["pdf"])
 tipo = st.selectbox("🧠 Neurodivergência do aluno:", ["TDAH", "TEA", "Ansiedade"])
 
 def limpar_quebras(texto):
-    texto = re.sub(r'(?<!\n)\n(?!\n)', ' ', texto)  # quebra de linha leve → espaço
-    texto = re.sub(r'(\w)-\s+(\w)', r'\1\2', texto)  # junta palavras quebradas com hífen
-    texto = re.sub(r'\n{2,}', '\n\n', texto)  # múltiplas quebras → parágrafo
+    texto = re.sub(r'(?<!\n)\n(?!\n)', ' ', texto)
+    texto = re.sub(r'(\w)-\s+(\w)', r'\1\2', texto)
+    texto = re.sub(r'\n{2,}', '\n\n', texto)
     return texto
+
+def extrair_questoes(texto):
+    # Regex para captar a palavra "Questão" (com variantes de acentuação), seguida do número da questão
+    padrao = re.compile(r'(?:Quest[aã]o\s*\d+)(.*?)(?=(?:Quest[aã]o\s*\d+)|\Z)', re.DOTALL | re.IGNORECASE)
+    questoes = padrao.findall(texto)
+    # Filtra blocos que parecem questões válidas: devem ser maiores que 100 caracteres e conter pelo menos duas alternativas
+    questoes_validas = []
+    for q in questoes:
+        alternativas = re.findall(r'^[A-E][\).]', q, re.MULTILINE)
+        if len(q.strip()) > 100 and len(alternativas) >= 2:
+            questoes_validas.append(q.strip())
+    return questoes_validas[:5]
 
 def formatar_questao(texto):
     # Divide enunciado e alternativas
@@ -47,13 +57,15 @@ def formatar_questao(texto):
     enunciado = []
     alternativas = []
     for linha in linhas:
-        if re.match(r'^[A-E][)]', linha.strip()) or re.match(r'^[A-E][.]', linha.strip()):
+        if re.match(r'^[A-E][\).]', linha.strip()):
             alternativas.append(linha.strip())
         else:
             enunciado.append(linha.strip())
-    return ' '.join(enunciado), alternativas
+    return ' '.join(enunciado).strip(), alternativas
 
 def set_font_paragraph(paragraph, size=14, bold=False):
+    if not paragraph.runs:
+        return
     run = paragraph.runs[0]
     run.font.name = 'Arial'
     run.font.size = Pt(size)
@@ -65,8 +77,8 @@ def set_spacing(paragraph, space_after=18):
     p = paragraph._element
     pPr = p.get_or_add_pPr()
     spacing = OxmlElement('w:spacing')
-    spacing.set(qn('w:after'), str(space_after*20)) # Espaço depois em TWIPs
-    spacing.set(qn('w:line'), '360')  # 1,5 de espaçamento (1,5 x 240)
+    spacing.set(qn('w:after'), str(space_after*20))
+    spacing.set(qn('w:line'), '360')
     spacing.set(qn('w:lineRule'), 'auto')
     pPr.append(spacing)
 
@@ -79,21 +91,16 @@ if uploaded_file and tipo:
                 texto += page.get_text()
             texto = limpar_quebras(texto)
 
-            # Separar questões por "Questão"
-            questoes = re.split(r'(?i)\bQuest(ã|a)o\s*\d+', texto)
-            questoes = [q.strip() for q in questoes if q.strip()]
-            if len(questoes) > 10:
-                questoes = questoes[1:]  # Remove cabeçalho, se necessário
-            questoes = questoes[:5]  # Apenas as 5 primeiras (mais fáceis)
+            questoes = extrair_questoes(texto)
 
             docx_file = docx.Document()
 
-            # Adiciona título
+            # Título
             titulo = docx_file.add_heading("Prova Adaptada", level=0)
             set_font_paragraph(titulo, size=14, bold=True)
             set_spacing(titulo, space_after=24)
 
-            # Adiciona dicas
+            # Dicas
             subtitulo = docx_file.add_paragraph(f"Dicas para {tipo}:")
             set_font_paragraph(subtitulo, size=14, bold=True)
             set_spacing(subtitulo, space_after=12)
@@ -102,9 +109,9 @@ if uploaded_file and tipo:
                 set_font_paragraph(dica_paragrafo, size=14)
                 set_spacing(dica_paragrafo, space_after=12)
 
-            docx_file.add_paragraph("")  # Espaço visual
+            docx_file.add_paragraph("")
 
-            # Adiciona cada questão adaptada
+            # Questões
             for idx, bloco in enumerate(questoes, 1):
                 enunciado, alternativas = formatar_questao(bloco)
                 qnum = docx_file.add_paragraph(f"Questão {idx}")
@@ -117,7 +124,7 @@ if uploaded_file and tipo:
                     alt_paragrafo = docx_file.add_paragraph(alt)
                     set_font_paragraph(alt_paragrafo, size=14)
                     set_spacing(alt_paragrafo, space_after=12)
-                docx_file.add_paragraph("")  # Espaço extra
+                docx_file.add_paragraph("")
 
             buffer = BytesIO()
             docx_file.save(buffer)
