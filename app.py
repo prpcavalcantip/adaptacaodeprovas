@@ -11,7 +11,6 @@ st.set_page_config(page_title="AdaptaProva", layout="centered")
 st.title("🧠 AdaptaProva - Provas Adaptadas para Alunos com Neurodivergência")
 st.markdown("Envie uma prova em PDF com texto selecionável e selecione a neurodivergência do aluno para gerar uma versão adaptada.")
 
-# Banco de dicas para cada neurodivergência
 dicas_por_tipo = {
     "TDAH": [
         "Destaque palavras-chave da pergunta.",
@@ -51,6 +50,31 @@ def separar_enunciado_alternativas(texto):
 def contem_imagem_ou_referencia(texto):
     padrao_img = r"(figura|imagem|ilustração|gráfico|esquema|diagrama|tabela|abaixo|acima|ao lado|veja a|observe a|\/Im\d+\.\w{3,4})"
     return bool(re.search(padrao_img, texto, re.IGNORECASE))
+
+def remover_creditos_imagem(texto):
+    # Remove linhas típicas de créditos de imagens/artistas/bancos
+    linhas = texto.split("\n")
+    # Créditos comuns, museus, bancos de imagens, nomes de artistas
+    padroes = [
+        r"^©.*$",                              # Ex: ©Corel Stock Photos
+        r"^\(.*direitos.*\)$",                 # Ex: (todos os direitos reservados)
+        r"^\(.*copyright.*\)$",                # Ex: (copyright ...)
+        r"^DA VINCI,.*$",                      # Ex: DA VINCI, Leonardo. Mona Lisa...
+        r"^[A-Z\s,\.]{10,}$",                  # Linhas com muitos nomes/maiúsculas (provável crédito)
+        r"^.*Museu.*$",                        # Ex: Museu do Louvre, Paris.
+        r"^.*banco de imagens.*$",             # Ex: banco de imagens
+        r"^.*Stock Photos.*$",                 # Ex: Corel Stock Photos
+        r"^.*\.jpg$",                          # Ex: Nome de arquivo de imagem
+        r"^.*óleo sobre madeira.*$",           # Ex: Óleo sobre madeira...
+        r"^.*acervo.*$",                       # Ex: acervo do artista
+        r"^.*paris.*$",                        # Ex: Paris
+        r"^.*www\..*|^.*http.*$",              # URLs
+    ]
+    filtradas = []
+    for linha in linhas:
+        if not any(re.match(p, linha.strip(), re.IGNORECASE) for p in padroes):
+            filtradas.append(linha)
+    return "\n".join(filtradas).strip()
 
 def selecionar_objetivas(blocos, total_questoes=10):
     questoes = []
@@ -120,7 +144,6 @@ if uploaded_file and tipo:
                     aviso_par = docx_file.add_paragraph()
                     aviso_run = aviso_par.add_run("🚩 Incluir imagem da prova original")
                     aviso_run.bold = True
-                    # Definir cor vermelha
                     aviso_run.font.color.rgb = RGBColor(255, 0, 0)
                     aviso_par.alignment = WD_PARAGRAPH_ALIGNMENT.LEFT
                     aviso_par.paragraph_format.line_spacing = 1.5
@@ -128,7 +151,9 @@ if uploaded_file and tipo:
                     aviso_run.font.size = Pt(14)
                     aviso_run.font.name = "Arial"
 
-                enun_par = docx_file.add_paragraph(enunciado)
+                # Remove créditos do enunciado e alternativas
+                enunciado_limpo = remover_creditos_imagem(enunciado)
+                enun_par = docx_file.add_paragraph(enunciado_limpo)
                 enun_par.alignment = WD_PARAGRAPH_ALIGNMENT.LEFT
                 enun_par.paragraph_format.line_spacing = 1.5
                 enun_par.paragraph_format.space_after = Pt(15)
@@ -139,7 +164,8 @@ if uploaded_file and tipo:
                 docx_file.add_paragraph("")
 
                 for alt in alternativas:
-                    alt_par = docx_file.add_paragraph(alt)
+                    alt_limpo = remover_creditos_imagem(alt)
+                    alt_par = docx_file.add_paragraph(alt_limpo)
                     alt_par.alignment = WD_PARAGRAPH_ALIGNMENT.LEFT
                     alt_par.paragraph_format.line_spacing = 1.5
                     alt_par.paragraph_format.space_after = Pt(6)
