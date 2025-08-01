@@ -3,7 +3,7 @@ import fitz  # PyMuPDF
 import docx
 import re
 from io import BytesIO
-from docx.shared import Pt
+from docx.shared import Pt, RGBColor
 from docx.enum.text import WD_PARAGRAPH_ALIGNMENT
 
 st.set_page_config(page_title="AdaptaProva", layout="centered")
@@ -117,13 +117,16 @@ if uploaded_file and tipo:
                 titulo.paragraph_format.space_after = Pt(2)
 
                 if tem_imagem:
-                    enun_par = docx_file.add_paragraph("Incluir imagem da prova original", style=None)
-                    enun_par.alignment = WD_PARAGRAPH_ALIGNMENT.LEFT
-                    enun_par.paragraph_format.line_spacing = 1.5
-                    enun_par.paragraph_format.space_after = Pt(6)
-                    for run in enun_par.runs:
-                        run.font.size = Pt(14)
-                        run.font.name = "Arial"
+                    aviso_par = docx_file.add_paragraph()
+                    aviso_run = aviso_par.add_run("🚩 Incluir imagem da prova original")
+                    aviso_run.bold = True
+                    # Definir cor vermelha
+                    aviso_run.font.color.rgb = RGBColor(255, 0, 0)
+                    aviso_par.alignment = WD_PARAGRAPH_ALIGNMENT.LEFT
+                    aviso_par.paragraph_format.line_spacing = 1.5
+                    aviso_par.paragraph_format.space_after = Pt(6)
+                    aviso_run.font.size = Pt(14)
+                    aviso_run.font.name = "Arial"
 
                 enun_par = docx_file.add_paragraph(enunciado)
                 enun_par.alignment = WD_PARAGRAPH_ALIGNMENT.LEFT
