@@ -46,22 +46,32 @@ def eh_cabecalho(bloco):
     return False
 
 def separar_enunciado_alternativas(texto):
-    partes = re.split(r'(?=^[A-E][\).])', texto, flags=re.MULTILINE)
+    partes = re.split(r'(?=^[A-Ea-e][\).])', texto, flags=re.MULTILINE)
     enunciado = partes[0].strip()
     alternativas = [alt.strip() for alt in partes[1:]] if len(partes) > 1 else []
     return enunciado, alternativas
 
-def selecionar_objetivas(blocos, max_questoes=5):
+def contem_imagem_ou_referencia(texto):
+    # Verifica palavras comuns e padrões OCR de imagens extraídas de PDFs
+    padrao_img = r"(figura|imagem|ilustração|gráfico|esquema|diagrama|tabela|abaixo|acima|ao lado|veja a|observe a|\/Im\d+\.\w{3,4})"
+    return bool(re.search(padrao_img, texto, re.IGNORECASE))
+
+def selecionar_objetivas(blocos, max_questoes=10):
     questoes = []
     for bloco in blocos:
         enunciado, alternativas = separar_enunciado_alternativas(bloco)
-        # Considera "objetiva" as que têm pelo menos 3 alternativas e enunciado curto
         if len(alternativas) >= 3 and len(enunciado) < 700:
-            questoes.append((enunciado, alternativas, bloco))
+            tem_imagem = contem_imagem_ou_referencia(bloco)
+            questoes.append((enunciado, alternativas, bloco, tem_imagem))
     # Ordena por tamanho do enunciado (as mais objetivas primeiro)
     questoes.sort(key=lambda x: len(x[0]))
-    # Retorna até max_questoes
-    return questoes[:max_questoes]
+    # Prioriza questões sem imagem, mas inclui questões com imagem se necessário
+    questoes_sem_img = [q for q in questoes if not q[3]]
+    questoes_com_img = [q for q in questoes if q[3]]
+    selecionadas = questoes_sem_img[:max_questoes]
+    if len(selecionadas) < max_questoes:
+        selecionadas += questoes_com_img[:max_questoes - len(selecionadas)]
+    return selecionadas[:max_questoes]
 
 if uploaded_file and tipo:
     if st.button("🔄 Gerar Prova Adaptada"):
@@ -73,13 +83,21 @@ if uploaded_file and tipo:
             for page in doc:
                 texto += page.get_text()
 
+            if texto.strip() == "":
+                st.warning("O PDF enviado não contém texto selecionável. Por favor, envie um PDF digital ou convertido para texto.")
+                st.stop()
+
             # Divide por "QUESTÃO X"
-            blocos = re.split(r'\bQUEST[ÃA]O[\s:]*\d+\b', texto, flags=re.IGNORECASE)
+            blocos = re.split(r'\bQUEST[ÃA]O[\s:]*\d+\b[:.]?', texto, flags=re.IGNORECASE)
             blocos = [b.strip() for b in blocos if b.strip()]
             if blocos and eh_cabecalho(blocos[0]):
                 blocos = blocos[1:]
 
-            questoes = selecionar_objetivas(blocos, max_questoes=5)
+            questoes = selecionar_objetivas(blocos, max_questoes=10)
+
+            if not questoes:
+                st.error("Não foram encontradas questões objetivas suficientes no PDF. Envie outro arquivo ou verifique o formato.")
+                st.stop()
 
             docx_file = docx.Document()
             docx_file.add_heading("Prova Adaptada", 0)
@@ -100,7 +118,7 @@ if uploaded_file and tipo:
             docx_file.add_paragraph("")
 
             # Adiciona as questões
-            for i, (enunciado, alternativas, bloco_original) in enumerate(questoes):
+            for i, (enunciado, alternativas, bloco_original, tem_imagem) in enumerate(questoes):
                 # Título da questão
                 titulo = docx_file.add_paragraph()
                 run = titulo.add_run(f"QUESTÃO {i+1}")
@@ -108,11 +126,20 @@ if uploaded_file and tipo:
                 titulo.alignment = WD_PARAGRAPH_ALIGNMENT.LEFT
                 titulo.paragraph_format.space_after = Pt(2)
 
-                # Enunciado
+                # Enunciado (com aviso se necessário)
+                if tem_imagem:
+                    enun_par = docx_file.add_paragraph("⚠️ incluir imagem da prova original", style=None)
+                    enun_par.alignment = WD_PARAGRAPH_ALIGNMENT.LEFT
+                    enun_par.paragraph_format.line_spacing = 1.5
+                    enun_par.paragraph_format.space_after = Pt(6)
+                    for run in enun_par.runs:
+                        run.font.size = Pt(14)
+                        run.font.name = "Arial"
+
                 enun_par = docx_file.add_paragraph(enunciado)
                 enun_par.alignment = WD_PARAGRAPH_ALIGNMENT.LEFT
                 enun_par.paragraph_format.line_spacing = 1.5
-                enun_par.paragraph_format.space_after = Pt(15)  # Espaçamento extra após enunciado
+                enun_par.paragraph_format.space_after = Pt(15)
                 for run in enun_par.runs:
                     run.font.size = Pt(14)
                     run.font.name = "Arial"
