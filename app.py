@@ -51,29 +51,35 @@ def contem_imagem_ou_referencia(texto):
     padrao_img = r"(figura|imagem|ilustração|gráfico|esquema|diagrama|tabela|abaixo|acima|ao lado|veja a|observe a|\/Im\d+\.\w{3,4})"
     return bool(re.search(padrao_img, texto, re.IGNORECASE))
 
-def remover_creditos_imagem(texto):
-    # Remove linhas típicas de créditos de imagens/artistas/bancos
+def remover_creditos_e_citacoes(texto):
+    # Remove linhas típicas de créditos de imagens/artistas/bancos, URLs, museus, arquivos de imagem, e citações do tipo [MACKENZIE 2017]
     linhas = texto.split("\n")
-    # Créditos comuns, museus, bancos de imagens, nomes de artistas
     padroes = [
-        r"^©.*$",                              # Ex: ©Corel Stock Photos
-        r"^\(.*direitos.*\)$",                 # Ex: (todos os direitos reservados)
-        r"^\(.*copyright.*\)$",                # Ex: (copyright ...)
-        r"^DA VINCI,.*$",                      # Ex: DA VINCI, Leonardo. Mona Lisa...
-        r"^[A-Z\s,\.]{10,}$",                  # Linhas com muitos nomes/maiúsculas (provável crédito)
-        r"^.*Museu.*$",                        # Ex: Museu do Louvre, Paris.
-        r"^.*banco de imagens.*$",             # Ex: banco de imagens
-        r"^.*Stock Photos.*$",                 # Ex: Corel Stock Photos
-        r"^.*\.jpg$",                          # Ex: Nome de arquivo de imagem
-        r"^.*óleo sobre madeira.*$",           # Ex: Óleo sobre madeira...
-        r"^.*acervo.*$",                       # Ex: acervo do artista
-        r"^.*paris.*$",                        # Ex: Paris
-        r"^.*www\..*|^.*http.*$",              # URLs
+        r"^©.*$",                                  # Ex: ©Corel Stock Photos
+        r"^\(.*direitos.*\)$",                     # (todos os direitos reservados)
+        r"^\(.*copyright.*\)$",                    # (copyright ...)
+        r"^DA VINCI,.*$",                          # DA VINCI, Leonardo. Mona Lisa...
+        r"^[A-Z\s,\.]{10,}$",                      # Linhas com muitos nomes/maiúsculas (provável crédito)
+        r"^.*Museu.*$",                            # Museu do Louvre, Paris.
+        r"^.*banco de imagens.*$",                 # banco de imagens
+        r"^.*Stock Photos.*$",                     # Corel Stock Photos
+        r"^.*\.jpg$",                              # Nome de arquivo de imagem
+        r"^.*óleo sobre madeira.*$",               # Óleo sobre madeira...
+        r"^.*acervo.*$",                           # acervo do artista
+        r"^.*paris.*$",                            # Paris
+        r"^.*www\..*|^.*http.*$",                  # URLs
+        r"^\[.*?\d{4}.*?\]$",                      # [Qualquer coisa 2017], [MACKENZIE 2017], [ENEM 2022] etc.
+        r"\[[A-Z\s\-]*\d{4}[A-Z\s\-]*\]",          # [UNICAMP 2019], [FUVEST 2020], etc no meio da linha
     ]
     filtradas = []
     for linha in linhas:
-        if not any(re.match(p, linha.strip(), re.IGNORECASE) for p in padroes):
-            filtradas.append(linha)
+        # Remove linhas inteiras que são créditos/citações
+        if any(re.match(p, linha.strip(), re.IGNORECASE) for p in padroes):
+            continue
+        # Remove citações do tipo [NOME 2022] no meio da linha
+        linha = re.sub(r"\[[A-Z\s\-]*\d{4}[A-Z\s\-]*\]", "", linha)
+        linha = re.sub(r"\[[^\]]*?\d{4}[^\]]*?\]", "", linha)  # [qualquer coisa 2017]
+        filtradas.append(linha)
     return "\n".join(filtradas).strip()
 
 def selecionar_objetivas(blocos, total_questoes=10):
@@ -151,8 +157,8 @@ if uploaded_file and tipo:
                     aviso_run.font.size = Pt(14)
                     aviso_run.font.name = "Arial"
 
-                # Remove créditos do enunciado e alternativas
-                enunciado_limpo = remover_creditos_imagem(enunciado)
+                # Remove créditos e citações do enunciado e alternativas
+                enunciado_limpo = remover_creditos_e_citacoes(enunciado)
                 enun_par = docx_file.add_paragraph(enunciado_limpo)
                 enun_par.alignment = WD_PARAGRAPH_ALIGNMENT.LEFT
                 enun_par.paragraph_format.line_spacing = 1.5
@@ -164,7 +170,7 @@ if uploaded_file and tipo:
                 docx_file.add_paragraph("")
 
                 for alt in alternativas:
-                    alt_limpo = remover_creditos_imagem(alt)
+                    alt_limpo = remover_creditos_e_citacoes(alt)
                     alt_par = docx_file.add_paragraph(alt_limpo)
                     alt_par.alignment = WD_PARAGRAPH_ALIGNMENT.LEFT
                     alt_par.paragraph_format.line_spacing = 1.5
