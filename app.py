@@ -65,7 +65,6 @@ def selecionar_objetivas(blocos, total_questoes=10):
     selecionadas = questoes_sem_img[:total_questoes]
     if len(selecionadas) < total_questoes:
         selecionadas += questoes_com_img[:total_questoes - len(selecionadas)]
-    # Retorna exatamente total_questoes ou erro se não houver
     if len(selecionadas) < total_questoes:
         return None
     return selecionadas[:total_questoes]
@@ -118,7 +117,7 @@ if uploaded_file and tipo:
                 titulo.paragraph_format.space_after = Pt(2)
 
                 if tem_imagem:
-                    enun_par = docx_file.add_paragraph("⚠️ incluir imagem da prova original", style=None)
+                    enun_par = docx_file.add_paragraph("Incluir imagem da prova original", style=None)
                     enun_par.alignment = WD_PARAGRAPH_ALIGNMENT.LEFT
                     enun_par.paragraph_format.line_spacing = 1.5
                     enun_par.paragraph_format.space_after = Pt(6)
