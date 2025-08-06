@@ -1,15 +1,17 @@
+# adaptaprova_app.py
 import streamlit as st
 import fitz  # PyMuPDF
 import docx
 import re
 from io import BytesIO
+from gtts import gTTS
 from docx.shared import Pt, RGBColor
 from docx.enum.text import WD_PARAGRAPH_ALIGNMENT
 
 st.set_page_config(page_title="AdaptaProva", layout="centered")
 
 st.title("🧠 AdaptaProva - Provas Adaptadas para Alunos com Neurodivergência")
-st.markdown("Envie uma prova em PDF com texto selecionável e selecione a neurodivergência do aluno para gerar uma versão adaptada.")
+st.markdown("Envie uma prova em PDF com texto selecionável e selecione a(s) neurodivergência(s) do aluno para gerar uma versão adaptada com leitura em voz alta, visualização e segmentação.")
 
 dicas_por_tipo = {
     "TDAH": [
@@ -30,7 +32,7 @@ dicas_por_tipo = {
 }
 
 uploaded_file = st.file_uploader("📄 Envie a prova em PDF", type=["pdf"])
-tipo = st.selectbox("🧠 Neurodivergência do aluno:", ["TDAH", "TEA", "Ansiedade"])
+tipos = st.multiselect("🧠 Neurodivergência(s) do aluno:", ["TDAH", "TEA", "Ansiedade"])
 
 def eh_cabecalho(bloco):
     if re.search(r'^[A-E][\).]', bloco, flags=re.MULTILINE):
@@ -52,33 +54,19 @@ def contem_imagem_ou_referencia(texto):
     return bool(re.search(padrao_img, texto, re.IGNORECASE))
 
 def remover_creditos_e_citacoes(texto):
-    # Remove linhas típicas de créditos de imagens/artistas/bancos, URLs, museus, arquivos de imagem, e citações do tipo [MACKENZIE 2017]
     linhas = texto.split("\n")
     padroes = [
-        r"^©.*$",                                  # Ex: ©Corel Stock Photos
-        r"^\(.*direitos.*\)$",                     # (todos os direitos reservados)
-        r"^\(.*copyright.*\)$",                    # (copyright ...)
-        r"^DA VINCI,.*$",                          # DA VINCI, Leonardo. Mona Lisa...
-        r"^[A-Z\s,\.]{10,}$",                      # Linhas com muitos nomes/maiúsculas (provável crédito)
-        r"^.*Museu.*$",                            # Museu do Louvre, Paris.
-        r"^.*banco de imagens.*$",                 # banco de imagens
-        r"^.*Stock Photos.*$",                     # Corel Stock Photos
-        r"^.*\.jpg$",                              # Nome de arquivo de imagem
-        r"^.*óleo sobre madeira.*$",               # Óleo sobre madeira...
-        r"^.*acervo.*$",                           # acervo do artista
-        r"^.*paris.*$",                            # Paris
-        r"^.*www\..*|^.*http.*$",                  # URLs
-        r"^\[.*?\d{4}.*?\]$",                      # [Qualquer coisa 2017], [MACKENZIE 2017], [ENEM 2022] etc.
-        r"\[[A-Z\s\-]*\d{4}[A-Z\s\-]*\]",          # [UNICAMP 2019], [FUVEST 2020], etc no meio da linha
+        r"^©.*$", r"^\(.*direitos.*\)$", r"^\(.*copyright.*\)$", r"^DA VINCI,.*$", r"^[A-Z\s,\.]{10,}$",
+        r"^.*Museu.*$", r"^.*banco de imagens.*$", r"^.*Stock Photos.*$", r"^.*\.jpg$",
+        r"^.*óleo sobre madeira.*$", r"^.*acervo.*$", r"^.*paris.*$", r"^.*www\..*|^.*http.*$",
+        r"^\[.*?\d{4}.*?\]$", r"\[[A-Z\s\-]*\d{4}[A-Z\s\-]*\]"
     ]
     filtradas = []
     for linha in linhas:
-        # Remove linhas inteiras que são créditos/citações
         if any(re.match(p, linha.strip(), re.IGNORECASE) for p in padroes):
             continue
-        # Remove citações do tipo [NOME 2022] no meio da linha
         linha = re.sub(r"\[[A-Z\s\-]*\d{4}[A-Z\s\-]*\]", "", linha)
-        linha = re.sub(r"\[[^\]]*?\d{4}[^\]]*?\]", "", linha)  # [qualquer coisa 2017]
+        linha = re.sub(r"\[[^\]]*?\d{4}[^\]]*?\]", "", linha)
         filtradas.append(linha)
     return "\n".join(filtradas).strip()
 
@@ -99,20 +87,42 @@ def selecionar_objetivas(blocos, total_questoes=10):
         return None
     return selecionadas[:total_questoes]
 
-if uploaded_file and tipo:
+def ajustar_enunciado_para_neurodivergencias(enunciado, tipos):
+    texto = enunciado
+    if "TDAH" in tipos:
+        frases = re.split(r'(?<=[.!?])\s+', texto)
+        if len(frases) > 1:
+            texto = '\n• ' + '\n• '.join(frases)
+    if "TEA" in tipos:
+        substituicoes = {
+            "imagine": "pense", "considere": "observe", "interprete": "explique",
+            "sugira": "escreva", "reflita": "explique com suas palavras"
+        }
+        for termo, claro in substituicoes.items():
+            texto = re.sub(rf"\b{termo}\b", claro, texto, flags=re.IGNORECASE)
+    if "Ansiedade" in tipos:
+        termos_pressao = ["rapidamente", "com atenção redobrada", "urgente", "imediatamente"]
+        for termo in termos_pressao:
+            texto = re.sub(rf"\b{termo}\b", "", texto, flags=re.IGNORECASE)
+    return texto.strip()
+
+def segmentar_alternativa(alt):
+    if len(alt) > 200:
+        frases = re.split(r'(?<=[.!?])\s+', alt)
+        return "\n".join(frases)
+    return alt
+
+if uploaded_file and tipos:
     if st.button("🔄 Gerar Prova Adaptada"):
         with st.spinner("Processando..."):
-
             doc = fitz.open(stream=uploaded_file.read(), filetype="pdf")
-            texto = ""
-            for page in doc:
-                texto += page.get_text()
+            texto = "".join([page.get_text() for page in doc])
 
             if texto.strip() == "":
                 st.warning("O PDF enviado não contém texto selecionável. Por favor, envie um PDF digital ou convertido para texto.")
                 st.stop()
 
-            blocos = re.split(r'\bQUEST[ÃA]O[\s:]*\d+\b[:.]?', texto, flags=re.IGNORECASE)
+            blocos = re.split(r'\bQUEST[ÃA]O\s*\d+\b[:.)]?', texto, flags=re.IGNORECASE)
             blocos = [b.strip() for b in blocos if b.strip()]
             if blocos and eh_cabecalho(blocos[0]):
                 blocos = blocos[1:]
@@ -120,75 +130,31 @@ if uploaded_file and tipo:
             questoes = selecionar_objetivas(blocos, total_questoes=10)
 
             if not questoes:
-                st.error("Não foram encontradas exatamente 10 questões objetivas válidas nesse PDF (sem imagem ou com aviso). Envie outro arquivo ou verifique o formato.")
+                st.error("Não foram encontradas exatamente 10 questões objetivas válidas nesse PDF. Envie outro arquivo ou verifique o formato.")
                 st.stop()
 
-            docx_file = docx.Document()
-            docx_file.add_heading("Prova Adaptada", 0)
+            dicas_selecionadas = []
+            for t in tipos:
+                dicas_selecionadas.extend(dicas_por_tipo.get(t, []))
+            dicas_selecionadas = list(dict.fromkeys(dicas_selecionadas))
 
-            style = docx_file.styles["Normal"]
-            style.font.size = Pt(14)
-            style.font.name = "Arial"
-            style.paragraph_format.line_spacing = 1.5
-            style.paragraph_format.space_after = Pt(10)
+            texto_para_audio = []
 
-            docx_file.add_paragraph("💡 DICAS PARA O ALUNO:", style="List Bullet")
-            for dica in dicas_por_tipo[tipo]:
-                p = docx_file.add_paragraph(dica, style="List Bullet")
-                p.alignment = WD_PARAGRAPH_ALIGNMENT.LEFT
-                p.paragraph_format.line_spacing = 1.5
-            docx_file.add_paragraph("")
-
-            for i, (enunciado, alternativas, bloco_original, tem_imagem) in enumerate(questoes):
-                titulo = docx_file.add_paragraph()
-                run = titulo.add_run(f"QUESTÃO {i+1}")
-                run.bold = True
-                titulo.alignment = WD_PARAGRAPH_ALIGNMENT.LEFT
-                titulo.paragraph_format.space_after = Pt(2)
-
+            st.subheader("👀 Pré-visualização da Prova Adaptada")
+            for i, (enunciado, alternativas, _, tem_imagem) in enumerate(questoes):
+                st.markdown(f"**QUESTÃO {i+1}**")
                 if tem_imagem:
-                    aviso_par = docx_file.add_paragraph()
-                    aviso_run = aviso_par.add_run("🚩 Incluir imagem da prova original")
-                    aviso_run.bold = True
-                    aviso_run.font.color.rgb = RGBColor(255, 0, 0)
-                    aviso_par.alignment = WD_PARAGRAPH_ALIGNMENT.LEFT
-                    aviso_par.paragraph_format.line_spacing = 1.5
-                    aviso_par.paragraph_format.space_after = Pt(6)
-                    aviso_run.font.size = Pt(14)
-                    aviso_run.font.name = "Arial"
+                    st.warning("🚩 Incluir imagem da prova original")
 
-                # Remove créditos e citações do enunciado e alternativas
                 enunciado_limpo = remover_creditos_e_citacoes(enunciado)
-                enun_par = docx_file.add_paragraph(enunciado_limpo)
-                enun_par.alignment = WD_PARAGRAPH_ALIGNMENT.LEFT
-                enun_par.paragraph_format.line_spacing = 1.5
-                enun_par.paragraph_format.space_after = Pt(15)
-                for run in enun_par.runs:
-                    run.font.size = Pt(14)
-                    run.font.name = "Arial"
-
-                docx_file.add_paragraph("")
+                enunciado_adaptado = ajustar_enunciado_para_neurodivergencias(enunciado_limpo, tipos)
+                st.write(enunciado_adaptado)
+                texto_para_audio.append(f"Questão {i+1}: {enunciado_adaptado}")
 
                 for alt in alternativas:
                     alt_limpo = remover_creditos_e_citacoes(alt)
-                    alt_par = docx_file.add_paragraph(alt_limpo)
-                    alt_par.alignment = WD_PARAGRAPH_ALIGNMENT.LEFT
-                    alt_par.paragraph_format.line_spacing = 1.5
-                    alt_par.paragraph_format.space_after = Pt(6)
-                    for run in alt_par.runs:
-                        run.font.size = Pt(14)
-                        run.font.name = "Arial"
+                    alt_segmentado = segmentar_alternativa(alt_limpo)
+                    st.write("- " + alt_segmentado)
+                    texto_para_audio.append(alt_segmentado)
 
-                docx_file.add_paragraph("")
-
-            buffer = BytesIO()
-            docx_file.save(buffer)
-            buffer.seek(0)
-
-            st.success("✅ Prova adaptada gerada com sucesso!")
-            st.download_button(
-                label="📥 Baixar Prova Adaptada (.docx)",
-                data=buffer,
-                file_name="prova_adaptada.docx",
-                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-            )
+            texto_audio = "\n\n".join(texto_para_audio)
