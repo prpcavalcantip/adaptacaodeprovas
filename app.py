@@ -1,4 +1,3 @@
-# adaptaprova_app.py
 import streamlit as st
 import fitz  # PyMuPDF
 import docx
@@ -112,49 +111,89 @@ def segmentar_alternativa(alt):
         return "\n".join(frases)
     return alt
 
+def exportar_para_word(questoes, tipos, dicas):
+    doc = docx.Document()
+    doc.add_heading("Prova Adaptada", 0)
+    
+    # Adiciona seção de dicas
+    if dicas:
+        p = doc.add_paragraph("Dicas para realizar a prova:")
+        p.style.font.size = Pt(14)
+        p.style.font.bold = True
+        for dica in dicas:
+            p = doc.add_paragraph(f"• {dica}")
+            p.style.font.size = Pt(12)
+            p.alignment = WD_PARAGRAPH_ALIGNMENT.LEFT
+    
+    # Adiciona questões
+    for i, (enunciado, alternativas, _, _) in enumerate(questoes):
+        doc.add_heading(f"Questão {i+1}", level=1)
+        doc.add_paragraph(ajustar_enunciado_para_neurodivergencias(remover_creditos_e_citacoes(enunciado), tipos))
+        for alt in alternativas:
+            doc.add_paragraph(f"- {segmentar_alternativa(remover_creditos_e_citacoes(alt))}")
+    
+    buffer = BytesIO()
+    doc.save(buffer)
+    return buffer.getvalue()
+
 if uploaded_file and tipos:
+    if not tipos:
+        st.error("Selecione pelo menos uma neurodivergência.")
+        st.stop()
     if st.button("🔄 Gerar Prova Adaptada"):
         with st.spinner("Processando..."):
             doc = fitz.open(stream=uploaded_file.read(), filetype="pdf")
-            texto = "".join([page.get_text() for page in doc])
-
-            if texto.strip() == "":
-                st.warning("O PDF enviado não contém texto selecionável. Por favor, envie um PDF digital ou convertido para texto.")
+            texto = "".join(page.get_text() for page in doc)
+            if not texto.strip():
+                st.warning("O PDF não contém texto selecionável.")
                 st.stop()
 
             blocos = re.split(r'\bQUEST[ÃA]O\s*\d+\b[:.)]?', texto, flags=re.IGNORECASE)
-            blocos = [b.strip() for b in blocos if b.strip()]
-            if blocos and eh_cabecalho(blocos[0]):
-                blocos = blocos[1:]
-
-            questoes = selecionar_objetivas(blocos, total_questoes=10)
+            blocos = [b.strip() for b in blocos if b.strip() and not eh_cabecalho(b)]
+            questoes = selecionar_objetivas(blocos)
 
             if not questoes:
-                st.error("Não foram encontradas exatamente 10 questões objetivas válidas nesse PDF. Envie outro arquivo ou verifique o formato.")
+                st.error("Não foram encontradas 10 questões objetivas válidas.")
                 st.stop()
 
+            # Seleção de dicas
             dicas_selecionadas = []
             for t in tipos:
                 dicas_selecionadas.extend(dicas_por_tipo.get(t, []))
-            dicas_selecionadas = list(dict.fromkeys(dicas_selecionadas))
+            dicas_selecionadas = list(dict.fromkeys(dicas_selecionadas))  # Remove duplicatas
 
-            texto_para_audio = []
+            # Exibe dicas na pré-visualização
+            st.subheader("📝 Dicas para Realizar a Prova")
+            for dica in dicas_selecionadas:
+                st.markdown(f"- {dica}")
 
+            # Pré-visualização das questões
             st.subheader("👀 Pré-visualização da Prova Adaptada")
+            texto_para_audio = []
             for i, (enunciado, alternativas, _, tem_imagem) in enumerate(questoes):
                 st.markdown(f"**QUESTÃO {i+1}**")
                 if tem_imagem:
                     st.warning("🚩 Incluir imagem da prova original")
-
                 enunciado_limpo = remover_creditos_e_citacoes(enunciado)
                 enunciado_adaptado = ajustar_enunciado_para_neurodivergencias(enunciado_limpo, tipos)
                 st.write(enunciado_adaptado)
                 texto_para_audio.append(f"Questão {i+1}: {enunciado_adaptado}")
-
                 for alt in alternativas:
                     alt_limpo = remover_creditos_e_citacoes(alt)
                     alt_segmentado = segmentar_alternativa(alt_limpo)
                     st.write("- " + alt_segmentado)
                     texto_para_audio.append(alt_segmentado)
 
+            # Gera áudio
             texto_audio = "\n\n".join(texto_para_audio)
+            audio_buffer = BytesIO()
+            gTTS(texto_audio, lang='pt').write_to_fp(audio_buffer)
+            st.audio(audio_buffer.getvalue(), format="audio/mp3")
+
+            # Botão para baixar o documento Word
+            st.download_button(
+                label="📥 Baixar Prova em Word",
+                data=exportar_para_word(questoes, tipos, dicas_selecionadas),
+                file_name="prova_adaptada.docx",
+                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            )
