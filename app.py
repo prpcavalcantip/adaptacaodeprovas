@@ -113,24 +113,36 @@ def segmentar_alternativa(alt):
 
 def exportar_para_word(questoes, tipos, dicas):
     doc = docx.Document()
-    doc.add_heading("Prova Adaptada", 0)
+    # Título principal
+    p = doc.add_heading("Prova Adaptada", 0)
+    p.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
+    p.runs[0].font.size = Pt(16)
+    p.runs[0].font.bold = True
     
     # Adiciona seção de dicas
     if dicas:
         p = doc.add_paragraph("Dicas para realizar a prova:")
         p.style.font.size = Pt(14)
         p.style.font.bold = True
+        p.alignment = WD_PARAGRAPH_ALIGNMENT.LEFT
         for dica in dicas:
             p = doc.add_paragraph(f"• {dica}")
             p.style.font.size = Pt(12)
+            p.style.font.bold = False  # Garante que as dicas não sejam negritadas
             p.alignment = WD_PARAGRAPH_ALIGNMENT.LEFT
     
     # Adiciona questões
     for i, (enunciado, alternativas, _, _) in enumerate(questoes):
-        doc.add_heading(f"Questão {i+1}", level=1)
-        doc.add_paragraph(ajustar_enunciado_para_neurodivergencias(remover_creditos_e_citacoes(enunciado), tipos))
+        p = doc.add_heading(f"Questão {i+1}", level=1)
+        p.runs[0].font.size = Pt(14)
+        p.runs[0].font.bold = True
+        p = doc.add_paragraph(ajustar_enunciado_para_neurodivergencias(remover_creditos_e_citacoes(enunciado), tipos))
+        p.style.font.size = Pt(12)
+        p.style.font.bold = False  # Garante que o enunciado não seja negritado
         for alt in alternativas:
-            doc.add_paragraph(f"- {segmentar_alternativa(remover_creditos_e_citacoes(alt))}")
+            p = doc.add_paragraph(f"- {segmentar_alternativa(remover_creditos_e_citacoes(alt))}")
+            p.style.font.size = Pt(12)
+            p.style.font.bold = False  # Garante que as alternativas não sejam negritadas
     
     buffer = BytesIO()
     doc.save(buffer)
