@@ -1,113 +1,160 @@
+# adaptaprova_app.py
 import streamlit as st
-from docx import Document
-from docx.shared import Pt
-from docx.enum.text import WD_PARAGRAPH_ALIGNMENT
+import fitz  # PyMuPDF
+import docx
+import re
 from io import BytesIO
+from gtts import gTTS
+from docx.shared import Pt, RGBColor
+from docx.enum.text import WD_PARAGRAPH_ALIGNMENT
 
-# Simulador de adaptação
-def adaptar_questao(questao, tipos):
-    enunciado, alternativas, resposta, tem_imagem = questao
+st.set_page_config(page_title="AdaptaProva", layout="centered")
 
-    # TDAH e Ansiedade: segmenta o enunciado e simplifica alternativas longas
-    if "TDAH" in tipos or "Ansiedade" in tipos:
-        enunciado = "\n".join(enunciado.split(". "))
-        alternativas = [alt[:100] + "..." if len(alt) > 100 else alt for alt in alternativas]
+st.title("🧠 AdaptaProva - Provas Adaptadas para Alunos com Neurodivergência")
+st.markdown("Envie uma prova em PDF com texto selecionável e selecione a(s) neurodivergência(s) do aluno para gerar uma versão adaptada com leitura em voz alta, visualização e segmentação.")
 
-    # Dislexia: letras minúsculas e capitalização
-    if "Dislexia" in tipos:
-        enunciado = enunciado.lower().capitalize()
-
-    return (enunciado, alternativas, resposta, tem_imagem)
-
-# Geração de DOCX com dicas e questões
-def gerar_docx_com_dicas(questoes, tipos, dicas_por_tipo):
-    doc = Document()
-    titulo = doc.add_heading("🧠 Prova Adaptada - AdaptaProva", level=1)
-    titulo.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
-
-    if tipos:
-        doc.add_heading("🧭 Orientações iniciais", level=2)
-        par = doc.add_paragraph()
-        par.add_run("Você selecionou: ").bold = True
-        par.add_run(", ".join(tipos)).italic = True
-        par.add_run(". Aqui estão algumas dicas para você:")
-
-        dicas_combinadas = []
-        for t in tipos:
-            dicas_combinadas.extend(dicas_por_tipo.get(t, []))
-        dicas_combinadas = list(dict.fromkeys(dicas_combinadas))  # remove duplicatas
-
-        for dica in dicas_combinadas:
-            doc.add_paragraph("• " + dica, style="List Bullet")
-
-    doc.add_paragraph("\n")
-
-    for i, (enunciado, alternativas, _, tem_imagem) in enumerate(questoes):
-        doc.add_heading(f"Questão {i+1}", level=3)
-        if tem_imagem:
-            doc.add_paragraph("🚩 Esta questão contém uma imagem na versão original.")
-        doc.add_paragraph(enunciado)
-        for alt in alternativas:
-            doc.add_paragraph(f"- {alt}", style="List Bullet")
-
-    output = BytesIO()
-    doc.save(output)
-    output.seek(0)
-    return output
-
-# Dicas por neurodivergência
 dicas_por_tipo = {
     "TDAH": [
-        "Use régua ou dedo para focar na linha.",
-        "Leia uma questão por vez.",
-        "Ignore distrações externas momentaneamente.",
-        "Respire fundo se perder o foco."
+        "Destaque palavras-chave da pergunta.",
+        "Leia a pergunta duas vezes antes de escolher a resposta.",
+        "Tente eliminar as alternativas claramente erradas primeiro."
+    ],
+    "TEA": [
+        "Preste atenção nas palavras que indicam ordem, como 'primeiro', 'depois', 'por fim'.",
+        "Leia com calma. Respire fundo antes de cada pergunta.",
+        "Use rascunho para organizar o que entendeu da questão."
     ],
     "Ansiedade": [
-        "Faça pausas curtas para respirar.",
-        "Lembre-se de que você pode voltar a questões difíceis.",
-        "Evite se pressionar pelo tempo.",
-        "Pense positivo: você pode fazer isso."
-    ],
-    "Dislexia": [
-        "Leia em voz baixa se possível.",
-        "Substitua palavras difíceis por sinônimos.",
-        "Divida frases grandes em partes menores.",
-        "Use marca-texto se tiver em mãos."
+        "Lembre-se: você pode fazer uma pergunta de cada vez com calma.",
+        "Respire fundo antes de começar cada questão.",
+        "Você está preparado. Confie no seu raciocínio!"
     ]
 }
 
-# Interface Streamlit
-st.title("🧠 AdaptaProva - Gerador de Provas Acessíveis")
+uploaded_file = st.file_uploader("📄 Envie a prova em PDF", type=["pdf"])
+tipos = st.multiselect("🧠 Neurodivergência(s) do aluno:", ["TDAH", "TEA", "Ansiedade"])
 
-tipos = st.multiselect("Selecione as neurodivergências do aluno:", ["TDAH", "Ansiedade", "Dislexia"])
+def eh_cabecalho(bloco):
+    if re.search(r'^[A-E][\).]', bloco, flags=re.MULTILINE):
+        return False
+    if re.search(r'Aluno|Professor|Turma|Data', bloco, re.IGNORECASE):
+        return True
+    if len(bloco.strip()) < 40:
+        return True
+    return False
 
-# Questões exemplo
-questoes_originais = [
-    ("Qual é a capital do Brasil? A cidade é conhecida por sua arquitetura moderna.",
-     ["São Paulo", "Brasília", "Rio de Janeiro", "Belo Horizonte"], "Brasília", False),
+def separar_enunciado_alternativas(texto):
+    partes = re.split(r'(?=^[A-Ea-e][\).])', texto, flags=re.MULTILINE)
+    enunciado = partes[0].strip()
+    alternativas = [alt.strip() for alt in partes[1:]] if len(partes) > 1 else []
+    return enunciado, alternativas
 
-    ("Observe a imagem e responda: Qual animal está representado?",
-     ["Gato", "Cachorro", "Leão", "Cavalo"], "Leão", True)
-]
+def contem_imagem_ou_referencia(texto):
+    padrao_img = r"(figura|imagem|ilustração|gráfico|esquema|diagrama|tabela|abaixo|acima|ao lado|veja a|observe a|\/Im\d+\.\w{3,4})"
+    return bool(re.search(padrao_img, texto, re.IGNORECASE))
 
-if st.button("📄 Gerar Prova Adaptada"):
-    questoes = [adaptar_questao(q, tipos) for q in questoes_originais]
+def remover_creditos_e_citacoes(texto):
+    linhas = texto.split("\n")
+    padroes = [
+        r"^©.*$", r"^\(.*direitos.*\)$", r"^\(.*copyright.*\)$", r"^DA VINCI,.*$", r"^[A-Z\s,\.]{10,}$",
+        r"^.*Museu.*$", r"^.*banco de imagens.*$", r"^.*Stock Photos.*$", r"^.*\.jpg$",
+        r"^.*óleo sobre madeira.*$", r"^.*acervo.*$", r"^.*paris.*$", r"^.*www\..*|^.*http.*$",
+        r"^\[.*?\d{4}.*?\]$", r"\[[A-Z\s\-]*\d{4}[A-Z\s\-]*\]"
+    ]
+    filtradas = []
+    for linha in linhas:
+        if any(re.match(p, linha.strip(), re.IGNORECASE) for p in padroes):
+            continue
+        linha = re.sub(r"\[[A-Z\s\-]*\d{4}[A-Z\s\-]*\]", "", linha)
+        linha = re.sub(r"\[[^\]]*?\d{4}[^\]]*?\]", "", linha)
+        filtradas.append(linha)
+    return "\n".join(filtradas).strip()
 
-    # Pré-visualização na tela
-    for i, (enunciado, alternativas, _, tem_imagem) in enumerate(questoes):
-        st.markdown(f"### Questão {i+1}")
-        if tem_imagem:
-            st.info("🚩 Esta questão contém uma imagem na versão original.")
-        st.write(enunciado)
-        for alt in alternativas:
-            st.write(f"- {alt}")
+def selecionar_objetivas(blocos, total_questoes=10):
+    questoes = []
+    for bloco in blocos:
+        enunciado, alternativas = separar_enunciado_alternativas(bloco)
+        if len(alternativas) >= 3 and len(enunciado) < 700:
+            tem_imagem = contem_imagem_ou_referencia(bloco)
+            questoes.append((enunciado, alternativas, bloco, tem_imagem))
+    questoes.sort(key=lambda x: len(x[0]))
+    questoes_sem_img = [q for q in questoes if not q[3]]
+    questoes_com_img = [q for q in questoes if q[3]]
+    selecionadas = questoes_sem_img[:total_questoes]
+    if len(selecionadas) < total_questoes:
+        selecionadas += questoes_com_img[:total_questoes - len(selecionadas)]
+    if len(selecionadas) < total_questoes:
+        return None
+    return selecionadas[:total_questoes]
 
-    # Geração do DOCX com dicas
-    docx_file = gerar_docx_com_dicas(questoes, tipos, dicas_por_tipo)
-    st.download_button(
-        label="📥 Baixar Prova Adaptada (.docx)",
-        data=docx_file,
-        file_name="prova_adaptada.docx",
-        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-    )
+def ajustar_enunciado_para_neurodivergencias(enunciado, tipos):
+    texto = enunciado
+    if "TDAH" in tipos:
+        frases = re.split(r'(?<=[.!?])\s+', texto)
+        if len(frases) > 1:
+            texto = '\n• ' + '\n• '.join(frases)
+    if "TEA" in tipos:
+        substituicoes = {
+            "imagine": "pense", "considere": "observe", "interprete": "explique",
+            "sugira": "escreva", "reflita": "explique com suas palavras"
+        }
+        for termo, claro in substituicoes.items():
+            texto = re.sub(rf"\b{termo}\b", claro, texto, flags=re.IGNORECASE)
+    if "Ansiedade" in tipos:
+        termos_pressao = ["rapidamente", "com atenção redobrada", "urgente", "imediatamente"]
+        for termo in termos_pressao:
+            texto = re.sub(rf"\b{termo}\b", "", texto, flags=re.IGNORECASE)
+    return texto.strip()
+
+def segmentar_alternativa(alt):
+    if len(alt) > 200:
+        frases = re.split(r'(?<=[.!?])\s+', alt)
+        return "\n".join(frases)
+    return alt
+
+if uploaded_file and tipos:
+    if st.button("🔄 Gerar Prova Adaptada"):
+        with st.spinner("Processando..."):
+            doc = fitz.open(stream=uploaded_file.read(), filetype="pdf")
+            texto = "".join([page.get_text() for page in doc])
+
+            if texto.strip() == "":
+                st.warning("O PDF enviado não contém texto selecionável. Por favor, envie um PDF digital ou convertido para texto.")
+                st.stop()
+
+            blocos = re.split(r'\bQUEST[ÃA]O\s*\d+\b[:.)]?', texto, flags=re.IGNORECASE)
+            blocos = [b.strip() for b in blocos if b.strip()]
+            if blocos and eh_cabecalho(blocos[0]):
+                blocos = blocos[1:]
+
+            questoes = selecionar_objetivas(blocos, total_questoes=10)
+
+            if not questoes:
+                st.error("Não foram encontradas exatamente 10 questões objetivas válidas nesse PDF. Envie outro arquivo ou verifique o formato.")
+                st.stop()
+
+            dicas_selecionadas = []
+            for t in tipos:
+                dicas_selecionadas.extend(dicas_por_tipo.get(t, []))
+            dicas_selecionadas = list(dict.fromkeys(dicas_selecionadas))
+
+            texto_para_audio = []
+
+            st.subheader("👀 Pré-visualização da Prova Adaptada")
+            for i, (enunciado, alternativas, _, tem_imagem) in enumerate(questoes):
+                st.markdown(f"**QUESTÃO {i+1}**")
+                if tem_imagem:
+                    st.warning("🚩 Incluir imagem da prova original")
+
+                enunciado_limpo = remover_creditos_e_citacoes(enunciado)
+                enunciado_adaptado = ajustar_enunciado_para_neurodivergencias(enunciado_limpo, tipos)
+                st.write(enunciado_adaptado)
+                texto_para_audio.append(f"Questão {i+1}: {enunciado_adaptado}")
+
+                for alt in alternativas:
+                    alt_limpo = remover_creditos_e_citacoes(alt)
+                    alt_segmentado = segmentar_alternativa(alt_limpo)
+                    st.write("- " + alt_segmentado)
+                    texto_para_audio.append(alt_segmentado)
+
+            texto_audio = "\n\n".join(texto_para_audio)
